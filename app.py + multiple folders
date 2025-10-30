@@ -1,0 +1,510 @@
+# python -m pip install shiny shinywidgets pandas plotly bcrypt sqlalchemy Jinja2
+# python -m shiny run --reload --port 5000 app.py
+
+from shiny import App, ui, reactive, render
+from shinywidgets import render_plotly
+from sqlalchemy import create_engine, Table, Column, Integer, String, MetaData, select
+import bcrypt
+import plotly.graph_objects as go
+
+from pages import dashboard, advice, chatbot, login
+
+# ---------------------------
+# DATABASE SETUP
+# ---------------------------
+engine = create_engine("sqlite:///database.db", echo=False)
+metadata = MetaData()
+users_table = Table(
+    "users", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("username", String, unique=True, nullable=False),
+    Column("password", String, nullable=False),
+)
+metadata.create_all(engine)
+
+
+# ---------------------------
+# AUTH HELPERS
+# ---------------------------
+def user_exists(username):
+    with engine.begin() as conn:
+        return conn.execute(
+            select(users_table).where(users_table.c.username == username)
+        ).fetchone() is not None
+
+
+def create_user(username, password):
+    if user_exists(username):
+        return False
+    hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    with engine.begin() as conn:
+        conn.execute(users_table.insert().values(username=username, password=hashed))
+    return True
+
+
+def verify_user(username, password):
+    with engine.begin() as conn:
+        row = conn.execute(
+            select(users_table).where(users_table.c.username == username)
+        ).fetchone()
+        if row and bcrypt.checkpw(password.encode("utf-8"), row.password.encode("utf-8")):
+            return True
+    return False
+
+
+# ---------------------------
+# MAIN UI
+# ---------------------------
+app_ui = ui.page_fluid(
+    ui.include_css("assets/style.css"),
+    ui.h2("FYWISE 💰 Personal Financial Dashboard"),
+    ui.output_text("status"),
+    ui.output_ui("main_ui"),
+)
+
+
+# ---------------------------
+# SERVER
+# ---------------------------
+def server(input, output, session):
+    logged_in = reactive.Value(False)
+    current_user = reactive.Value(None)
+    status_message = reactive.Value("")
+    current_page = reactive.Value("login")
+
+    # ---------- STATUS ----------
+    @render.text
+    def status():
+        return status_message()
+    output.status = status
+
+    # ---------- LOGIN/SIGNUP ----------
+    @reactive.effect
+    @reactive.event(input.signup_btn)
+    def signup():
+        uname, pword = input.username().strip(), input.password()
+        if not uname or not pword:
+            status_message.set("⚠️ Please enter both username and password.")
+        elif create_user(uname, pword):
+            status_message.set(f"✅ Account created for {uname}. You can now log in.")
+        else:
+            status_message.set("❌ Username already exists. Try another.")
+
+    @reactive.effect
+    @reactive.event(input.login_btn)
+    def login_action():
+        uname, pword = input.username().strip(), input.password()
+        if verify_user(uname, pword):
+            logged_in.set(True)
+            current_user.set(uname)
+            current_page.set("dashboard")
+            status_message.set(f"✅ Logged in as {uname}.")
+        else:
+            status_message.set("❌ Invalid credentials. Please try again.")
+
+    @reactive.effect
+    @reactive.event(input.logout_btn)
+    def logout():
+        logged_in.set(False)
+        current_user.set(None)
+        current_page.set("login")
+        status_message.set("👋 Logged out successfully.")
+
+    # ---------- MAIN UI ----------
+    @render.ui
+    def main_ui():
+        if not logged_in():
+            return login.login_ui()
+        else:
+            return ui.div(
+                ui.row(
+                    ui.input_action_button("go_dash", "Dashboard", class_="btn-primary"),
+                    ui.input_action_button("go_adv", "Advice", class_="btn-info"),
+                    ui.input_action_button("go_chat", "Chatbot", class_="btn-warning"),
+                    ui.input_action_button("logout_btn", "Logout", class_="btn-danger"),
+                ),
+                ui.br(),
+                ui.output_ui("page_content")
+            )
+
+    # ---------- PAGE NAVIGATION ----------
+    @reactive.effect
+    def nav():
+        if input.go_dash() > 0:
+            current_page.set("dashboard")
+        elif input.go_adv() > 0:
+            current_page.set("advice")
+        elif input.go_chat() > 0:
+            current_page.set("chatbot")
+
+    @render.ui
+    def page_content():
+        page = current_page.get()
+        if page == "dashboard":
+            return dashboard.dashboard_ui()
+        elif page == "advice":
+            return advice.advice_ui()
+        elif page == "chatbot":
+            return chatbot.chatbot_ui()
+        else:
+            return login.login_ui()
+
+    output.main_ui = main_ui
+    output.page_content = page_content
+
+    # ---------------------------
+    # DASHBOARD CHARTS
+    # ---------------------------
+    @render_plotly
+    def spending_chart():
+        labels = ["Rent", "Food - Home", "Food - Out", "Transportation", "Subscriptions", "Utilities", "Savings", "Retirement"]
+        values = [39.2, 16.3, 8.2, 9.0, 4.9, 6.5, 9.8, 13.1]
+        fig = go.Figure(data=[go.Pie(labels=labels, values=values, textinfo="label+percent")])
+        fig.update_traces(marker=dict(line=dict(color="#FFFFFF", width=2)))
+        fig.update_layout(showlegend=False, height=300,
+                          paper_bgcolor="#f1f5f9", font=dict(color="#0f172a"))
+        return fig
+
+    @render_plotly
+    def loan_chart():
+        months = [0, 5, 10, 15, 20]
+        balance = [90000, 70000, 50000, 30000, 10000]
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=months, y=balance, mode='lines+markers',
+                                 line=dict(color="#3b82f6", width=3)))
+        fig.update_layout(title="Loan Payoff Trend",
+                          xaxis_title="Months", yaxis_title="Remaining Balance ($)",
+                          height=300, paper_bgcolor="#f1f5f9", font=dict(color="#0f172a"))
+        return fig
+
+    @render_plotly
+    def retirement_chart():
+        years = [2024, 2034, 2044, 2054, 2064, 2068]
+        savings = [2000, 10000, 30000, 50000, 80000, 100000]
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=years, y=savings, mode='lines+markers',
+                                 line=dict(color="#10b981", width=3)))
+        fig.update_layout(title="Retirement Growth",
+                          xaxis_title="Year", yaxis_title="Savings ($)",
+                          height=300, paper_bgcolor="#f1f5f9", font=dict(color="#0f172a"))
+        return fig
+
+    output.spending_chart = spending_chart
+    output.loan_chart = loan_chart
+    output.retirement_chart = retirement_chart
+
+# Register dashboard charts
+    dashboard.register(output)
+
+# ---------------------------
+# RUN APP
+# ---------------------------
+app = App(app_ui, server)
+
+
+
+
+
+
+
+
+advice page
+
+from shiny import ui
+
+def advice_ui():
+    return ui.page_fluid(
+        ui.HTML("""
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                line-height: 1.6;
+                background-color: #f9f9f9;
+                color: #333;
+                margin: 0;
+                padding: 0;
+            }
+            header {
+                background-color: #2878bd;
+                color: white;
+                padding: 20px;
+                text-align: center;
+                border-radius: 8px;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            }
+            main {
+                padding: 20px;
+                max-width: 900px;
+                margin: auto;
+            }
+            section {
+                margin-bottom: 40px;
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            }
+            h1 {
+                margin: 0;
+                font-size: 2em;
+            }
+            h2 {
+                color: #264653;
+                margin-bottom: 15px;
+            }
+            ul {
+                padding-left: 20px;
+            }
+            li {
+                margin-bottom: 10px;
+            }
+            .tip {
+                background-color: #e9f5f5;
+                border-left: 5px solid #2a9d8f;
+                padding: 10px 15px;
+                margin-top: 15px;
+                border-radius: 4px;
+            }
+        </style>
+
+        <header>
+            <h1>Financial Advice</h1>
+        </header>
+
+        <main>
+            <section>
+                <h2>The 50/30/20 Rule</h2>
+                <p>The 50/30/20 rule is a basic budgeting rule that breaks your finances down into 3 categories:</p>
+                <ul>
+                    <li><strong>50% of income → Needs</strong></li>
+                    <li><strong>30% of income → Wants</strong></li>
+                    <li><strong>20% of income → Savings and/or paying off debt</strong></li>
+                </ul>
+                <p>Your needs include bills like mortgage/rent, utilities, groceries, transportation, and health insurance.</p>
+                <p>Your wants include subscriptions, eating out, entertainment, shopping, vacations, etc.</p>
+                <p>Your savings or debt repayment includes emergency funds, retirement, and loan payments.</p>
+                <div class="tip">💡 Tip: Use this as a starting point, then adjust percentages based on your personal goals and lifestyle.</div>
+            </section>
+
+            <section>
+                <h2>Creating SMART Financial Goals</h2>
+                <p>SMART goals allow you to create clear, structured plans to achieve your financial objectives.</p>
+                <ul>
+                    <li><strong>S:</strong> Specific</li>
+                    <li><strong>M:</strong> Measurable</li>
+                    <li><strong>A:</strong> Achievable</li>
+                    <li><strong>R:</strong> Relevant</li>
+                    <li><strong>T:</strong> Time-bound</li>
+                </ul>
+                <div class="tip">💡 Tip: Write down your goals and break them into small steps, this makes them easier to follow.</div>
+            </section>
+
+            <section>
+                <h2>Retirement Savings</h2>
+                <ul>
+                    <li><strong>401(k) / 403(b):</strong> Employer-sponsored plans with potential matching contributions and tax-deferred growth.</li>
+                    <li><strong>Traditional IRA:</strong> Tax-deductible contributions, tax-deferred growth.</li>
+                    <li><strong>Roth IRA:</strong> After-tax contributions, tax-free growth and withdrawals.</li>
+                    <li><strong>HSA:</strong> Health Savings Account with triple tax advantages for medical expenses.</li>
+                    <li><strong>Brokerage Account:</strong> Flexible investing but no tax benefits on withdrawals.</li>
+                </ul>
+                <div class="tip">💡 Tip: Always take advantage of employer matches — it’s free money for your future!</div>
+            </section>
+
+            <section>
+                <h2>Other Financial Principles</h2>
+                <ul>
+                    <li><strong>Pay Yourself First:</strong> Save before spending.</li>
+                    <li><strong>Live Below Your Means:</strong> Spend less than you earn and invest the rest.</li>
+                    <li><strong>Track Your Spending:</strong> Awareness helps control habits.</li>
+                    <li><strong>Emergency Fund:</strong> Save 3–6 months of expenses.</li>
+                    <li><strong>Avoid Bad Debt:</strong> Pay high-interest loans first.</li>
+                    <li><strong>Compound Interest:</strong> Start saving early.</li>
+                    <li><strong>Diversify Investments:</strong> Spread your money across different asset types.</li>
+                    <li><strong>Increase Contributions Over Time:</strong> Boost savings when income grows.</li>
+                    <li><strong>Financial Independence:</strong> Aim for freedom and stability, not just wealth.</li>
+                </ul>
+                <div class="tip">💡 Tip: Revisit your goals annually and adjust strategies as your life changes.</div>
+            </section>
+        </main>
+        """)
+    )
+
+
+
+
+
+
+chatbot
+
+from shiny import ui, render
+
+def ui():
+    return ui.card(
+        ui.h3("💬 FYWISE Chatbot"),
+        ui.input_text_area("chat_input", "Ask a question:"),
+        ui.input_action_button("send_chat", "Send", class_="btn-primary"),
+        ui.output_text("chat_reply")
+    )
+
+@render.text
+def chat_reply(input, output, session):
+    msg = input.chat_input()
+    if not msg:
+        return ""
+    return f"You said: {msg} — (Chatbot reply coming soon!)"
+    
+
+
+
+dashboard 
+
+from shiny import ui, render
+import matplotlib.pyplot as plt
+
+categories = ["Rent", "Food - Home", "Transportation", "Food - Out", "Subscriptions", "Utilities", "Savings", "Retirement"]
+values = [1200, 500, 250, 150, 60, 200, 300, 400]
+
+loan_months = [1, 6, 12, 18, 24]
+loan_remaining = [90000, 72000, 54000, 36000, 18000]
+
+retirement_years = [2025, 2035, 2045, 2055, 2065]
+retirement_savings = [2000, 15000, 40000, 70000, 100000]
+
+def dashboard_ui():
+    return ui.page_fluid(
+        ui.tags.style("""
+    body { 
+        background-color: #2878bd; 
+        font-family: 'Poppins', sans-serif; 
+        color: #f8fafc;
+    }
+    .card { 
+        background-color: #dce9f5; 
+        border-radius: 20px; 
+        padding: 15px; 
+        box-shadow: 0px 0px 10px rgba(0,0,0,0.15);
+        color: #0f172a;
+    }
+    h4, h2 { text-align: center; }
+    .progress-container {
+        width: 100%; 
+        background-color: #b5d0f0; 
+        border-radius: 10px; 
+        height: 20px;
+    }
+    .progress-bar {
+        width: 60%; 
+        height: 100%; 
+        background-color: #3b82f6; 
+        border-radius: 10px;
+    }
+"""),
+
+        ui.h2("Welcome User 20451", style="text-align:center;"),
+
+        ui.layout_columns(
+            ui.div({"class": "card"}, ui.h4("$20K Checking")),
+            ui.div({"class": "card"}, ui.h4("Advice for today:"), ui.p("Save 10% of each paycheck.")),
+            ui.div(
+                {"class": "card"},
+                ui.h4("Car Savings Goal"),
+                ui.div({"class": "progress-container"},
+                       ui.div({"class": "progress-bar"}))
+            )
+        ),
+
+        ui.layout_columns(
+            ui.div({"class": "card"},
+                   ui.h4("October Spending"),
+                   ui.output_plot("spending_pie", height="350px")),
+            ui.div({"class": "card"},
+                   ui.h4("Loan Progress"),
+                   ui.output_plot("loan_plot", height="350px"),
+                   ui.p("Total Loan: $90k"),
+                   ui.p("Monthly: $400"),
+                   ui.p("Payments left: 24"),
+                   ui.p("End date: 8/30/28")),
+            ui.div({"class": "card"},
+                   ui.h4("Retirement Growth"),
+                   ui.output_plot("retirement_plot", height="350px"),
+                   ui.p("Initial deposit: $2k"),
+                   ui.p("Monthly deposit: $200"),
+                   ui.p("Predicted: $100k by 2068"))
+        )
+    )
+
+# This will render the 3 charts when the dashboard loads
+def register(output):
+    @output
+    @render.plot
+    def spending_pie():
+        fig, ax = plt.subplots()
+        ax.pie(values, labels=categories, autopct='%1.1f%%', startangle=90)
+        ax.axis('equal')
+        return fig
+
+    @output
+    @render.plot
+    def loan_plot():
+        fig, ax = plt.subplots()
+        ax.plot(loan_months, loan_remaining, marker='o')
+        ax.set_xlabel("Months")
+        ax.set_ylabel("Remaining Balance ($)")
+        ax.set_title("Loan Payoff Trend")
+        return fig
+
+    @output
+    @render.plot
+    def retirement_plot():
+        fig, ax = plt.subplots()
+        ax.plot(retirement_years, retirement_savings, marker='o')
+        ax.set_xlabel("Year")
+        ax.set_ylabel("Savings ($)")
+        ax.set_title("Retirement Growth")
+        return fig
+
+
+
+
+login
+
+from shiny import ui
+
+def login_ui():
+    return ui.page_fluid(
+        ui.div(
+            ui.img(src="assets/fywise_logo.png", style="width:90px;margin-bottom:10px;"),
+            ui.h1("FYWISE", style="color:#1f2937;font-weight:700;margin-bottom:5px;"),
+            ui.p("Manage • Save • Grow • More", style="color:#4b5563;margin-bottom:30px;"),
+
+            ui.input_text("username", None, placeholder="Username", width="300px"),
+            ui.input_password("password", None, placeholder="Password", width="300px"),
+
+            ui.br(),
+            ui.div(
+                ui.input_action_button("login_btn", "LOGIN",
+                    class_="btn", style="background-color:#e5e7eb;color:#111827;width:300px;margin-bottom:10px;"
+                ),
+                ui.input_action_button("signup_btn", "CREATE ACCOUNT",
+                    class_="btn", style="background-color:#374151;color:white;width:300px;"
+                ),
+                style="display:flex;flex-direction:column;align-items:center;"
+            ),
+            style=(
+                "display:flex;flex-direction:column;align-items:center;justify-content:center;"
+                "height:90vh;background-color:#f9fafb;border-radius:12px;"
+            )
+        )
+    )
+
+
+
+
+
+
+
+
+
+
+
