@@ -1,6 +1,9 @@
-# python -m pip install shiny pandas plotly bcrypt sqlalchemy
+# python -m pip install shiny pandas plotly bcrypt sqlalchemy shinywidgets jinja2 psycopg2-binary python-dotenv
 # python -m shiny run --reload app.py
 
+from dotenv import load_dotenv
+import os
+from pathlib import Path
 from shiny import App, ui, reactive, render
 from shinywidgets import render_plotly
 import pandas as pd
@@ -8,19 +11,43 @@ import plotly.express as px
 import bcrypt
 from sqlalchemy import create_engine, Table, Column, Integer, String, MetaData, select
 
+
+# --- Load .env explicitly ---
+env_path = Path(__file__).resolve().parent / ".env"
+print("Loading .env from:", env_path)
+load_dotenv(dotenv_path=env_path)
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+print("DATABASE_URL (runtime):", DATABASE_URL)  # Debug print
+
+
+if not DATABASE_URL:
+    raise ValueError("❌ DATABASE_URL not found. Check your .env path!")
+
 # --- Database setup ---
-engine = create_engine("sqlite:///database.db", echo=False)
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"sslmode": "require"},
+    echo=False
+)
+
 metadata = MetaData()
 
+
+# Users table
 users_table = Table(
     "users", metadata,
     Column("id", Integer, primary_key=True),
     Column("username", String, unique=True, nullable=False),
     Column("password", String, nullable=False),
 )
+
+# Create the table if it doesn't exist yet
 metadata.create_all(engine)
 
-# --- Helper functions ---
+# ============================================================
+# Database Helper Functions
+# ============================================================
 def user_exists(username):
     with engine.begin() as conn:
         result = conn.execute(
@@ -31,9 +58,16 @@ def user_exists(username):
 def create_user(username, password):
     if user_exists(username):
         return False
+
     hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
     with engine.begin() as conn:
-        conn.execute(users_table.insert().values(username=username, password=hashed))
+        conn.execute(
+            users_table.insert().values(
+                username=username,
+                password=hashed
+            )
+        )
     return True
 
 def verify_user(username, password):
@@ -41,8 +75,10 @@ def verify_user(username, password):
         user = conn.execute(
             select(users_table).where(users_table.c.username == username)
         ).fetchone()
+
         if user and bcrypt.checkpw(password.encode("utf-8"), user.password.encode("utf-8")):
             return True
+
     return False
 
 def sample_data(username):
@@ -52,18 +88,23 @@ def sample_data(username):
         "User": username,
     })
 
-# --- UI ---
+# ============================================================
+# UI Layout
+# ============================================================
 app_ui = ui.page_fluid(
     ui.h2("💰 Personal Financial Dashboard"),
     ui.output_text("status"),
     ui.output_ui("main_ui"),
 )
 
-# --- Server ---
+# ============================================================
+# Server Logic
+# ============================================================
 def server(input, output, session):
+
     logged_in = reactive.Value(False)
     current_user = reactive.Value(None)
-    status_message = reactive.Value("")  # <-- holds text for status output
+    status_message = reactive.Value("")
 
     # -------------------------
     # SIGN UP
@@ -82,9 +123,9 @@ def server(input, output, session):
             if create_user(uname, pword):
                 status_message.set(f"✅ Account created for {uname}. You can now log in.")
             else:
-                status_message.set("❌ Username already exists. Please try another.")
+                status_message.set("❌ Username already exists.")
         except Exception as e:
-            print("🔥 Signup crashed with error:", e)
+            print("🔥 Signup error:", e)
             status_message.set(f"⚠️ Signup failed: {e}")
 
     # -------------------------
@@ -101,7 +142,7 @@ def server(input, output, session):
             current_user.set(uname)
             status_message.set(f"✅ Logged in as {uname}.")
         else:
-            status_message.set("❌ Invalid credentials. Please try again.")
+            status_message.set("❌ Invalid credentials.")
 
     # -------------------------
     # LOGOUT
@@ -114,22 +155,22 @@ def server(input, output, session):
         status_message.set("👋 Logged out successfully.")
 
     # -------------------------
-    # STATUS OUTPUT
+    # STATUS DISPLAY
     # -------------------------
     @render.text
     def status():
         return status_message()
 
-    output.status = status  # <--- connect render.text to output slot
+    output.status = status
 
     # -------------------------
-    # MAIN UI Rendering
+    # MAIN UI SWITCH
     # -------------------------
     @render.ui
     def main_ui():
         if not logged_in():
             return ui.card(
-                ui.h3("Login or Sign Up"),
+                ui.h3("Create an Account or Log In"),
                 ui.input_text("username", "Username"),
                 ui.input_password("password", "Password"),
                 ui.row(
@@ -137,16 +178,17 @@ def server(input, output, session):
                     ui.input_action_button("signup_btn", "Sign Up", class_="btn-success"),
                 ),
             )
+
         else:
             return ui.card(
                 ui.h3(f"📊 Dashboard - Welcome {current_user()}!"),
                 ui.output_table("dashboard_table"),
                 ui.output_plot("dashboard_chart"),
-                ui.input_action_button("logout_btn", "Logout", class_="btn btn-danger"),
+                ui.input_action_button("logout_btn", "Logout", class_="btn-danger"),
             )
 
     # -------------------------
-    # Dashboard data rendering
+    # DASHBOARD TABLE
     # -------------------------
     @render.table
     def dashboard_table():
@@ -154,12 +196,20 @@ def server(input, output, session):
             return sample_data(current_user())
         return pd.DataFrame()
 
+    # -------------------------
+    # DASHBOARD CHART
+    # -------------------------
     @render_plotly
     def dashboard_chart():
         if logged_in():
             df = sample_data(current_user())
-            fig = px.bar(df, x="Investment", y="Gain/Loss ($)",
-                        color="Gain/Loss ($)", title="Financial Gains/Losses")
+            fig = px.bar(
+                df,
+                x="Investment",
+                y="Gain/Loss ($)",
+                color="Gain/Loss ($)",
+                title="Financial Gains/Losses"
+            )
             return fig
         return None
 
@@ -167,11 +217,19 @@ def server(input, output, session):
     output.dashboard_table = dashboard_table
     output.dashboard_chart = dashboard_chart
 
-
+# ============================================================
+# App
+# ============================================================
 app = App(app_ui, server)
+
+# Run with:
+# python -m shiny run --reload app.py
 
 
 # http://127.0.0.1:8000
+
+
+
 
 
 
