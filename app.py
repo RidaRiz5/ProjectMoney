@@ -1,3 +1,5 @@
+# Needs .env, requirements.txt to run
+
 # python -m pip install shiny pandas plotly bcrypt sqlalchemy shinywidgets jinja2 psycopg2-binary python-dotenv
 # python -m shiny run --reload app.py
 
