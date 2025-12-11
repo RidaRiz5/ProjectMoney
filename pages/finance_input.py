@@ -1,5 +1,6 @@
 from shiny import ui
 
+
 def finance_input_ui(finances: dict):
 
     return ui.page_fluid(
@@ -37,9 +38,14 @@ def finance_input_ui(finances: dict):
             ui.card_header("Loans"),
             ui.input_numeric("loan_balance", "Loan Balance", finances["loan_balance"]),
             ui.input_numeric("monthly_payment", "Monthly Payment", finances["monthly_payment"]),
+            # 🔹 NEW: interest rate input (percentage)
+            ui.input_numeric("interest_rate", "Interest Rate (%)", finances["interest_rate"]),
         ),
 
         ui.br(),
         ui.input_action_button("save_finances", "Save Financial Data", class_="btn-success"),
-        ui.p("These changes will update your dashboard for this session.", class_="mt-2 text-muted"),
+        ui.p(
+            "These changes are saved to your FYWISE account and update your dashboard and other pages.",
+            class_="mt-2 text-muted",
+        ),
     )
