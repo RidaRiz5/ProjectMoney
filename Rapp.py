@@ -238,7 +238,7 @@ def save_finances_db(username: str, data: dict):
 
 
 # -------------------------------------------------
-# IMPORT UI PAGES (UNCHANGED)
+# IMPORT UI PAGES
 # -------------------------------------------------
 from pages.login import login_ui
 from pages.dashboard import dashboard_ui
@@ -251,7 +251,7 @@ from pages.financial_advice import financial_advice_ui
 from pages.chatbot import chatbot_ui
 
 # -------------------------------------------------
-# CHATBOT SETUP (UNCHANGED)
+# CHATBOT SETUP 
 # -------------------------------------------------
 from langchain_ollama import OllamaLLM
 from langchain_core.prompts import ChatPromptTemplate
@@ -270,7 +270,7 @@ prompt = ChatPromptTemplate.from_template(template)
 chain = prompt | llm
 
 # -------------------------------------------------
-# MAIN UI (UNCHANGED)
+# MAIN UI 
 # -------------------------------------------------
 app_ui = ui.page_fluid(
     ui.include_css("assets/style.css"),
@@ -281,7 +281,7 @@ app_ui = ui.page_fluid(
 )
 
 # -------------------------------------------------
-# SERVER LOGIC (NAV + DESIGN UNCHANGED)
+# SERVER LOGIC 
 # -------------------------------------------------
 def server(input, output, session):
 
@@ -353,7 +353,7 @@ def server(input, output, session):
         current_user.set("")
         status_message.set("Logged out successfully.")
 
-    # ---------- NAVIGATION (UNCHANGED) ----------
+    # ---------- NAVIGATION ----------
     @reactive.effect
     def nav():
         if not logged_in():
@@ -375,7 +375,7 @@ def server(input, output, session):
                 print("NAV ->", page)
                 current_page.set(page)
 
-    # ---------- SAVE FINANCES (NOW SAVES TO DB) ----------
+    # ---------- SAVE FINANCES  ----------
     @reactive.effect
     @reactive.event(input.save_finances)
     def _save_finances():
@@ -401,7 +401,7 @@ def server(input, output, session):
         status_message.set("Financial data saved to your FYWISE account.")
         print("FINANCES saved for:", current_user())
 
-    # ---------- CHARTS (UNCHANGED) ----------
+    # ---------- CHARTS ----------
     @render_plotly
     def loan_line():
         f = finances()
@@ -455,7 +455,7 @@ def server(input, output, session):
     output.expenses_pie = expenses_pie
     output.income_bar = income_bar
 
-    # ---------- CHATBOT (UNCHANGED) ----------
+    # ---------- CHATBOT ----------
     @render.ui
     def chat_history():
         elems = []
@@ -493,7 +493,7 @@ def server(input, output, session):
         hist.append({"sender": "bot", "text": str(reply)})
         messages.set(hist)
 
-    # ---------- MAIN UI ROUTER (UNCHANGED) ----------
+    # ---------- MAIN UI ROUTER ----------
     @render.ui
     def main_ui():
         if not logged_in():
