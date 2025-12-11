@@ -1,87 +1,51 @@
 from shiny import ui
-from shinywidgets import output_widget
 
 
-def expenses_ui(finances: dict):
-    total_expenses = (
-        finances["rent"]
-        + finances["groceries"]
-        + finances["food_out"]
-        + finances["transport"]
-        + finances["subscriptions"]
-        + finances["utilities"]
-        + finances["healthcare"]
-        + finances["personal_spending"]
-    )
-
-    # simple 50/30/20-style grouping (for display only)
-    needs = (
-        finances["rent"]
-        + finances["groceries"]
-        + finances["transport"]
-        + finances["utilities"]
-        + finances["healthcare"]
-    )
-    wants = (
-        finances["food_out"]
-        + finances["subscriptions"]
-        + finances["personal_spending"]
-    )
-    other = max(total_expenses - needs - wants, 0)
-
-    needs_pct = wants_pct = other_pct = 0.0
-    if total_expenses > 0:
-        needs_pct = needs / total_expenses * 100
-        wants_pct = wants / total_expenses * 100
-        other_pct = other / total_expenses * 100
+def finance_input_ui(finances: dict):
 
     return ui.page_fluid(
-        ui.h2("Expenses Overview", class_="text-center mb-3"),
+        ui.h2("Edit Your Financial Inputs", class_="text-center mb-3"),
 
-        # ----- TOP ROW: CHART + BREAKDOWN -----
-        ui.row(
-            ui.column(
-                6,
-                ui.card(
-                    ui.card_header("Expense Breakdown"),
-                    # Plotly expenses chart (ID unchanged)
-                    output_widget("expenses_pie"),
-                ),
-            ),
-            ui.column(
-                6,
-                ui.card(
-                    ui.card_header("Expense Details"),
-                    ui.p(f"Rent / Housing: ${finances['rent']:,.0f}"),
-                    ui.p(f"Groceries: ${finances['groceries']:,.0f}"),
-                    ui.p(f"Eating Out: ${finances['food_out']:,.0f}"),
-                    ui.p(f"Transportation: ${finances['transport']:,.0f}"),
-                    ui.p(f"Subscriptions: ${finances['subscriptions']:,.0f}"),
-                    ui.p(f"Utilities: ${finances['utilities']:,.0f}"),
-                    ui.p(f"Healthcare: ${finances['healthcare']:,.0f}"),
-                    ui.p(f"Personal / Fun: ${finances['personal_spending']:,.0f}"),
-                    ui.hr(),
-                    ui.p(f"Total Monthly Expenses: ${total_expenses:,.0f}"),
-                ),
-            ),
+        ui.card(
+            ui.card_header("Income"),
+            ui.input_numeric("monthly_income", "Main Job Income (per month)", finances["monthly_income"]),
+            ui.input_numeric("side_income", "Side Income (per month)", finances["side_income"]),
         ),
 
-        # ----- SECOND ROW: 50/30/20-STYLE SUMMARY -----
         ui.br(),
-        ui.row(
-            ui.column(
-                12,
-                ui.card(
-                    ui.card_header("Spending Snapshot"),
-                    ui.p(
-                        "This grouping uses a simple version of the 50/30/20 rule just to show where your money tends to go."
-                    ),
-                    ui.p(f"Essential needs (rent, groceries, transport, utilities, healthcare): "
-                         f"${needs:,.0f} ({needs_pct:,.1f}% of your expenses)"),
-                    ui.p(f"Wants (eating out, subscriptions, personal fun): "
-                         f"${wants:,.0f} ({wants_pct:,.1f}% of your expenses)"),
-                    ui.p(f"Other / ungrouped: ${other:,.0f} ({other_pct:,.1f}% of your expenses)"),
-                ),
-            )
+
+        ui.card(
+            ui.card_header("Basic Expenses"),
+            ui.input_numeric("rent", "Rent / Housing", finances["rent"]),
+            ui.input_numeric("groceries", "Groceries", finances["groceries"]),
+            ui.input_numeric("transport", "Transportation", finances["transport"]),
+        ),
+
+        ui.br(),
+
+        ui.card(
+            ui.card_header("Expanded Expenses"),
+            ui.input_numeric("food_out", "Eating Out", finances["food_out"]),
+            ui.input_numeric("subscriptions", "Subscriptions", finances["subscriptions"]),
+            ui.input_numeric("utilities", "Utilities", finances["utilities"]),
+            ui.input_numeric("healthcare", "Healthcare / Medical", finances["healthcare"]),
+            ui.input_numeric("personal_spending", "Personal / Fun Money", finances["personal_spending"]),
+        ),
+
+        ui.br(),
+
+        ui.card(
+            ui.card_header("Loans"),
+            ui.input_numeric("loan_balance", "Loan Balance", finances["loan_balance"]),
+            ui.input_numeric("monthly_payment", "Monthly Payment", finances["monthly_payment"]),
+            # 🔹 NEW: interest rate input (percentage)
+            ui.input_numeric("interest_rate", "Interest Rate (%)", finances["interest_rate"]),
+        ),
+
+        ui.br(),
+        ui.input_action_button("save_finances", "Save Financial Data", class_="btn-success"),
+        ui.p(
+            "These changes are saved to your FYWISE account and update your dashboard and other pages.",
+            class_="mt-2 text-muted",
         ),
     )
